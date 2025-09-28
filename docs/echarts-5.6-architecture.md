@@ -1,219 +1,203 @@
-### ECharts 5.6 分支概览与核心架构
+### ECharts 5.6 渲染与架构·简明指南
 
-本分支基于 ECharts 5.6（实际版本号见代码为 `6.0.0-beta.1`）的源码组织，文档旨在帮助理解渲染流程、代码架构以及如何进行单元测试。
+这是一份面向开发者的快速上手与理解指南，帮助你在本分支中高效阅读源码、扩展图表/组件并编写单测。
 
-- **仓库入口**: `src/echarts.ts`、`src/echarts.common.ts`、`src/echarts.simple.ts` 等打包入口
-- **渲染核心**: `src/core/echarts.ts`、`src/core/Scheduler.ts`、`src/core/task.ts`
-- **模型层**: `src/model/Global.ts`、`src/model/Series.ts`、`src/model/Component.ts`
-- **视图层**: `src/view/Chart.ts`、`src/view/Component.ts`
-- **数据/视觉流水线**: `src/processor/**`、`src/visual/**`、`src/layout/**`
-- **渲染器**: 依赖 `zrender`，在 `src/core/echarts.ts` 中通过 `zrender.init` 初始化 Canvas/SVG 渲染
+- **版本说明**: 基于 5.6 分支创建，当前源码版本号为 `6.0.0-beta.1`
+- **你将获得**: 渲染流程心智图、分层架构速览、扩展配方、单测方法、常见问题与排错建议
 
 
-## 渲染流程概述
+## 一分钟上手
 
-ECharts 的渲染主流程由 `ECharts` 类驱动，`Scheduler` 负责组织各阶段任务（数据处理、视觉计算、布局、系列渲染）的执行与增量推进。典型调用路径：
+- 安装依赖：`npm i`
+- 开发预览（本地服务器 + 快速构建）：`npm run dev`
+- 全量构建：`npm run build`
+- 单元测试：`npm test`
+- 可视化用例服务器：`npm run test:visual`
 
-1) 初始化实例
+
+## 一图看懂渲染流程（心智模型）
+
+```
+setOption/resize/dispatchAction
+        │
+        ▼
+   ECharts 实例（src/core/echarts.ts）
+        │  组织生命周期、组装模型与视图
+        ▼
+   Scheduler 调度（src/core/Scheduler.ts）
+        │  构建流水线 → 运行阶段任务（数据→视觉→布局）
+        ▼
+   Series/Component View（src/view/**）
+        │  render / incremental* 产出图形元素树
+        ▼
+   ZRender（Canvas/SVG）实际绘制
+```
+
+
+## 渲染流程（步骤详解）
+
+1) 初始化渲染上下文（Canvas/SVG）：
 
 ```475:487:src/core/echarts.ts
 const zr = this._zr = zrender.init(dom, {
-    renderer: opts.renderer || defaultRenderer,
-    devicePixelRatio: opts.devicePixelRatio,
-    width: opts.width,
-    height: opts.height,
-    ssr: opts.ssr,
-    useDirtyRect: retrieve2(opts.useDirtyRect, defaultUseDirtyRect),
-    useCoarsePointer: retrieve2(opts.useCoarsePointer, defaultCoarsePointer),
-    pointerSize: opts.pointerSize
+  renderer: opts.renderer || defaultRenderer,
+  devicePixelRatio: opts.devicePixelRatio,
+  width: opts.width,
+  height: opts.height,
+  ssr: opts.ssr,
+  useDirtyRect: retrieve2(opts.useDirtyRect, defaultUseDirtyRect),
+  useCoarsePointer: retrieve2(opts.useCoarsePointer, defaultCoarsePointer),
+  pointerSize: opts.pointerSize
 });
 ```
 
-2) 设置配置并构建模型
+2) `setOption` 合并配置，生成/更新模型（`GlobalModel`）：
 
-```624:681:src/core/echarts.ts
+```624:639:src/core/echarts.ts
 chart.setOption(option, notMerge, lazyUpdate);
 ...
-ecModel.init(...);
 this._model.setOption(option as ECBasicOption, { replaceMerge }, optionPreprocessorFuncs);
 ```
 
-3) 调度数据处理与视觉阶段
+3) 调度阶段任务：数据处理 → 视觉与布局 → 视图渲染：
 
 ```1916:1920:src/core/echarts.ts
-this._scheduler.performVisualTasks(ecModel, payload, {setDirty: true});
+this._scheduler.performVisualTasks(ecModel, payload, { setDirty: true });
 render(this, ecModel, this._api, payload, {});
 ```
 
-`Scheduler` 将各阶段注册的处理器编织为任务流水线，支持渐进式渲染与按块增量执行：
+4) 渐进式/大数据：由调度器判断并驱动 `ChartView.incremental*`：
 
-```121:137:src/core/Scheduler.ts
-constructor(ecInstance, api, dataProcessorHandlers, visualHandlers) {
-  this._dataProcessorHandlers = dataProcessorHandlers.slice();
-  this._visualHandlers = visualHandlers.slice();
-  this._allHandlers = dataProcessorHandlers.concat(visualHandlers);
-}
-```
-
-流水线与增量模式判定：
-
-```207:232:src/core/Scheduler.ts
-updateStreamModes(seriesModel, view) {
-  const pipeline = this._pipelineMap.get(seriesModel.uid);
-  const dataLen = seriesModel.getData().count();
-  const progressiveRender = pipeline.progressiveEnabled && view.incrementalPrepareRender && dataLen >= pipeline.threshold;
-  const large = seriesModel.get('large') && dataLen >= seriesModel.get('largeThreshold');
-  seriesModel.pipelineContext = pipeline.context = { progressiveRender, modDataCount, large };
-}
-```
-
-系列渲染任务的计划与执行（阻塞点用于分界非增量阶段）：
-
-```389:399:src/core/Scheduler.ts
-plan() {
-  this._pipelineMap.each(function (pipeline) {
-    let task = pipeline.tail;
-    do {
-      if (task.__block) { pipeline.blockIndex = task.__idxInPipeline; break; }
-      task = task.getUpstream();
-    } while (task);
-  });
-}
-```
-
-视图侧增量渲染协议由 `ChartView` 约定：
-
-```271:300:src/view/Chart.ts
+```271:292:src/view/Chart.ts
 const methodName = progressiveRender ? 'incrementalPrepareRender' : (updateMethod && view[updateMethod]) ? updateMethod : 'render';
 if (methodName !== 'render') { (view[methodName] as any)(seriesModel, ecModel, api, payload); }
 return progressMethodMap[methodName];
 ```
 
 
-## 架构分层
+## 架构分层（先记住这张表）
 
-- **ECharts 实例 (`src/core/echarts.ts`)**: 对外 API（`init`、`setOption`、`resize`、`dispatchAction`），维护模型、视图、调度器与 ZRender 实例。负责生命周期事件与主流程调度。
-- **调度器 Scheduler (`src/core/Scheduler.ts`)**: 将注册的处理器（数据处理器、视觉处理器）组织为任务流，维护流水线、增量配置、分块执行与脏标记传播。
-- **模型层 (`src/model/**`)**: 
-  - `GlobalModel` 维护全局组件与系列的统一视图，负责 `setOption` 合并、组件查找与依赖。
-  - `SeriesModel`、`ComponentModel` 定义系列和组件的配置读取、数据访问与状态。
-- **视图层 (`src/view/**`)**:
-  - `Chart.ts` 定义系列视图协议（`render`、`incrementalPrepareRender`、`incrementalRender`、`updateTransform` 等）。
-  - `Component.ts` 定义组件视图协议（`render/remove/dispose`）。
-- **处理阶段**:
-  - 数据处理器：`src/processor/**`（筛选、统计、堆叠等）。
-  - 视觉处理器：`src/visual/**`（调色板、样式、符号、图案等）。
-  - 布局阶段：`src/layout/**`（如坐标系、网格、极坐标等布局）。
-- **安装与扩展**:
-  - 各图表与组件通过 `install.ts` 注册处理器与视图，例如 `src/chart/pie/install.ts`、`src/component/legend/install.ts`。
-  - 注册接口涵盖 `registerProcessor`、`registerVisual`、`registerLayout`、`registerAction` 等（见各 `install.ts`）。
-- **渲染后端**:
-  - 依赖 `zrender`，在 `ECharts` 构造中 `zrender.init(dom, { renderer: 'canvas' | 'svg', ... })` 进行渲染上下文创建，随后由各 `View` 产出图形元素树并交由 zrender 渲染。
+- **核心实例**：`src/core/echarts.ts` 管理主流程与生命周期事件
+- **调度器**：`src/core/Scheduler.ts` 组织任务流水线与增量推进
+- **模型层**：`src/model/**`（`GlobalModel`、`SeriesModel`、`ComponentModel`）
+- **视图层**：`src/view/**`（`Chart.ts`、`Component.ts`）
+- **阶段处理**：`src/processor/**`、`src/visual/**`、`src/layout/**`
+- **安装注册**：各图表/组件的 `install.ts` 完成 registerProcessor/Visual/Layout/Action
+- **渲染后端**：ZRender（Canvas/SVG）
 
 
-## 关键时序（setOption -> 渲染）
+## 开发配方（直接照做）
 
-1. `setOption` 合并配置，`GlobalModel.setOption` 产出新的模型层结构
-2. `Scheduler.restorePipelines` 为每个系列建立流水线，`prepareStageTasks` 构建阶段任务
-3. 执行数据处理阶段（过滤/统计/堆叠等）
-4. 执行视觉与布局阶段（调色、样式、符号尺寸，布局）
-5. 准备/执行系列视图渲染：
-   - 普通渲染：`ChartView.render`
-   - 渐进式：`ChartView.incrementalPrepareRender` -> 多次 `incrementalRender`
-6. 更新组件视图与层级（`renderComponents`）
-7. ZRender 刷新帧，触发 `rendered/finished` 等事件
+### 新增一个系列图表（Series）
 
+1) 新建目录，例如：`src/chart/myChart/`
+2) 实现 `MyChartModel`（继承 `SeriesModel`）与 `MyChartView`（参考 `Chart.ts` 接口）
+3) 在 `src/chart/myChart/install.ts` 注册：
+   - 数据处理：`registerProcessor`
+   - 视觉/布局：`registerVisual`、`registerLayout`
+   - 视图与模型：`registerChartView`、`registerSeriesModel`
+4) 在入口（如 `src/echarts.all.ts` 或业务侧）`use(install)` 完成装配
 
-## 目录结构速览（本仓库）
+提示：若数据量大，优先实现 `incrementalPrepareRender` 与 `incrementalRender` 获得流式渲染体验。
 
-- 源码：`src/**`
-- 扩展源码：`extension-src/**`
-- 产物：`dist/**`
-- 服务端渲染客户端：`ssr/client/**`
-- 单测：`test/ut/**`（Jest）
-- 可视化回归与示例服务器：`test/runTest/**`（`npm run test:visual`）
-- 构建脚本：`build/**`
+### 新增一个组件（Component）
+
+1) 新建目录，例如：`src/component/myComponent/`
+2) 实现 `MyComponentModel` 与 `MyComponentView`
+3) 在 `install.ts` 调用：`registerComponentModel`、`registerComponentView`，以及必要的 `registerAction`、`registerLayout`
+4) 在入口装配 `install`
 
 
-## 单元测试
+## 单元测试（最常用的那几件事）
 
-- 测试框架：Jest + ts-jest，环境为 `jsdom`
-- 配置：`test/ut/jest.config.cjs`
-
-运行命令（来自根 `package.json`）：
+- 运行命令：
 
 ```bash
 npm test                     # 运行所有单测
-npm run test:single -- -t xx # 按名称过滤用例
-npm run test:single:debug    # Node Inspector 调试模式
-npm run test:visual          # 启动可视化测试服务器（非单测）
+npm run test:single -- -t xx # 名称过滤
+npm run test:single:debug    # 调试模式
 ```
 
-Jest 关键配置要点：
+- Jest 配置关键点：
 
 ```23:54:test/ut/jest.config.cjs
 preset: 'ts-jest',
 testEnvironment: 'jsdom',
 setupFiles: ['jest-canvas-mock', '<rootDir>/core/setup.ts'],
 setupFilesAfterEnv: ['<rootDir>/core/extendExpect.ts'],
-transformIgnorePatterns: ['node_modules/(?!zrender/)'],
-testMatch: [ '**/spec/api/*.test.ts', '**/spec/component/**/*.test.ts', ... ],
-moduleNameMapper: pathsToModuleNameMapper(compilerOptions.paths, { prefix: '<rootDir>/' })
+transformIgnorePatterns: ['node_modules/(?!zrender/)']
 ```
 
-测试辅助：
-
-- 创建/销毁图表：`test/ut/core/utHelper.ts`
+- 常用测试工具：`test/ut/core/utHelper.ts`
 
 ```33:61:test/ut/core/utHelper.ts
 export function createChart(params?) { /* 创建隐藏 DOM，init 并返回实例 */ }
 export function removeChart(chart) { chart.dispose(); }
 ```
 
-- 断言扩展：`test/ut/core/extendExpect.ts` 增加如 `toBeFinite` 等断言
+- 一个最小用例（结构示例）：
 
-- 示例用例：
+```ts
+import { createChart, removeChart } from '../../core/utHelper';
 
-```101:117:test/ut/spec/api/containPixel.test.ts
-beforeEach(() => { chart = createChart({ width: 200, height: 150 }); });
-afterEach(() => { removeChart(chart); });
-chart.setOption({ geo: [...], series: [...] });
-expect(chart.containPixel('geo', [15, 30])).toEqual(true);
+describe('my-feature', () => {
+  let chart;
+  beforeEach(() => { chart = createChart({ width: 200, height: 150 }); });
+  afterEach(() => { removeChart(chart); });
+
+  it('works', () => {
+    chart.setOption({ series: [{ type: 'line', data: [1, 2, 3] }] });
+    expect(chart.getWidth()).toBeGreaterThan(0);
+  });
+});
 ```
 
 
-## 构建与入口产物
+## 调试与排错（遇到问题先看这里）
 
-常用脚本（根 `package.json`）：
-
-- **开发**：`npm run dev`（并行快速构建与本地静态服务器）
-- **构建**：`npm run build`（`dist/echarts.js`、`echarts.min.js`、`esm` 等）
-- **SSR 构建**：`npm run build:ssr`
-- **类型测试**：`npm run test:dts`
-
-发行入口映射（`package.json#exports`）将 `dist/*`、`index.*`、`lib/*` 等对外导出。
-
-
-## 扩展开发指南（简述）
-
-1. 在对应图表/组件目录新增实现与 `install.ts`
-2. 在 `install.ts` 中通过 `registerProcessor / registerVisual / registerLayout / registerAction` 完成阶段注册
-3. 提供 `Model` 与 `View` 实现，满足 `ChartView` 或 `ComponentView` 协议（含增量渲染可选实现）
-4. 在打包入口（如 `src/echarts.all.ts`）中引入 `install` 完成全量注册，或由业务端按需注册
+- 看不出流程？在 `src/core/Scheduler.ts` 的 `perform*` 与 `plan` 设置断点，确认阶段顺序与是否进入增量
+- 视图不渲染？检查 `ChartView.render` 是否创建并挂载到 `group`，以及是否被布局阶段隐藏/裁剪
+- 大数据卡顿？
+  - 系列开启 `progressive`/`large` 选项
+  - 实现 `incremental*` 接口（见 `Chart.ts` 渐进式协议）
+- 单测报错 `Canvas`/`context` 缺失？确保 `jest-canvas-mock` 在 `setupFiles` 中
+- zrender 未被转译？确认 `transformIgnorePatterns: ['node_modules/(?!zrender/)']`
 
 
-## 调试建议
+## 术语速记（Glossary）
 
-- 通过 `npm run dev` 启动快速开发；用 `test/ut/spec/**` 单测定位逻辑回归
-- 观察调度：在 `Scheduler` 的 `perform*`、`plan` 处打断点确认阶段顺序与增量行为
-- 视图渲染问题：关注 `ChartView.render` 与 `incremental*` 的分支流转，以及 ZRender 元素树是否正确挂载
+- **Model**：配置的抽象表示，`GlobalModel` 汇总组件与系列；`SeriesModel`、`ComponentModel` 为具体项
+- **View**：渲染层实体，`ChartView`/`ComponentView` 负责把模型变成图形元素树
+- **Scheduler**：任务编排器，把各阶段 handler 连接为流水线并控制执行/增量
+- **StageHandler**：阶段处理函数（数据/视觉/布局），由 `install.ts` 注册
+- **Pipeline**：以系列为单位的任务链，承载 `progressive` 等上下文
+- **Progressive**：渐进式渲染，分帧输出，提升大数据交互体验
 
 
-## 相关文件快速索引
+## 目录结构速览
 
-- `src/core/echarts.ts`：ECharts 类与主流程、事件、生命周期
-- `src/core/Scheduler.ts`：任务调度、流水线、增量控制
-- `src/view/Chart.ts` / `src/view/Component.ts`：视图协议与任务适配
-- `src/model/Global.ts`：全局模型、`setOption` 合并
-- `test/ut/**`：单测入口、配置与用例
+- 源码：`src/**`
+- 扩展源码：`extension-src/**`
+- 产物：`dist/**`
+- SSR 客户端：`ssr/client/**`
+- 单测：`test/ut/**`（Jest）
+- 可视化/示例：`test/runTest/**`
+- 构建脚本：`build/**`
+
+
+## 常见问题（FAQ）
+
+- 合并规则：`setOption` 默认合并，使用 `{ notMerge: true }` 或 `replaceMerge` 控制替换语义
+- 选 Canvas 还是 SVG？默认 Canvas，SVG 在矢量清晰与 SSR 场景更友好，二者通过 `renderer` 切换
+- 何时需要渐进式？数据量达到系列 `progressiveThreshold` 且渲染可切分时开启
+- 颜色/样式来自哪里？先组件（如 visualMap），后系列/数据项，具体见 `src/visual/**` 执行顺序
+
+
+## 进一步阅读（精准跳转）
+
+- `src/core/echarts.ts`：主流程、API、生命周期
+- `src/core/Scheduler.ts`：任务调度、流水线、增量判断
+- `src/view/Chart.ts` / `src/view/Component.ts`：视图协议与增量渲染
+- `src/model/Global.ts`：`setOption` 合并与组件/系列管理
+- `test/ut/**`：Jest 配置、工具与用例
 
