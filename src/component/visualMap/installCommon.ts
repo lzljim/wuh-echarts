@@ -25,6 +25,7 @@ import { visualMapActionInfo, visualMapActionHander } from './visualMapAction';
 import { visualMapEncodingHandlers } from './visualEncoding';
 import { each } from 'zrender/src/core/util';
 import preprocessor from './preprocessor';
+import autoLegendLayout from '../../layout/autoLegendLayout';
 
 let installed = false;
 export default function installCommon(registers: EChartsExtensionInstallRegisters) {
@@ -56,4 +57,6 @@ export default function installCommon(registers: EChartsExtensionInstallRegister
         registers.registerVisual(registers.PRIORITY.VISUAL.COMPONENT, handler);
     });
     registers.registerPreprocessor(preprocessor);
+    // 注册自动布局处理器
+    registers.registerLayout(registers.PRIORITY.VISUAL.POST_CHART_LAYOUT, { overallReset: autoLegendLayout });
 }

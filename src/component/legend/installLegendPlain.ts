@@ -22,6 +22,7 @@ import LegendModel from './LegendModel';
 import LegendView from './LegendView';
 import legendFilter from './legendFilter';
 import { installLegendAction } from './legendAction';
+import autoLegendLayout from '../../layout/autoLegendLayout';
 
 export function install(registers: EChartsExtensionInstallRegisters) {
     registers.registerComponentModel(LegendModel);
@@ -33,4 +34,7 @@ export function install(registers: EChartsExtensionInstallRegisters) {
     });
 
     installLegendAction(registers);
+
+    // 注册自动布局处理器：后置布局阶段，overallReset 全局任务
+    registers.registerLayout(registers.PRIORITY.VISUAL.POST_CHART_LAYOUT, { overallReset: autoLegendLayout });
 }

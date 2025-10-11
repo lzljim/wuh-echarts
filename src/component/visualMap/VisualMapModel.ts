@@ -33,9 +33,9 @@ import {
     OptionDataValue,
     BuiltinVisualProperty,
     DimensionIndex,
-    OptionId,
     ComponentOnCalendarOptionMixin,
-    ComponentOnMatrixOptionMixin
+    ComponentOnMatrixOptionMixin,
+    PositionSizeOption
 } from '../../util/types';
 import ComponentModel from '../../model/Component';
 import Model from '../../model/Model';
@@ -157,6 +157,23 @@ export interface VisualMapOption<T extends VisualOptionBase = VisualOptionBase> 
 
 
     categories?: unknown
+
+    /**
+     * 自动布局位置。
+     * - 'top' / 'bottom': 水平布局（多个图例横向排列）
+     * - 'left' / 'right': 垂直布局（多个图例纵向排列）
+     * - undefined: 不启用自动布局
+     */
+    autoLayoutPosition?: 'top' | 'bottom' | 'left' | 'right'
+
+    /**
+     * 自动布局对齐方式。
+     * - 'start': 前对齐（水平布局时左对齐，垂直布局时上对齐）
+     * - 'center': 居中对齐（默认）
+     * - 'end': 后对齐（水平布局时右对齐，垂直布局时下对齐）
+     * 只有设置了 autoLayoutPosition 时才生效
+     */
+    autoLayoutAlign?: 'start' | 'center' | 'end'
 }
 
 export interface VisualMeta {
@@ -197,6 +214,8 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
     textStyleModel: Model<LabelOption>;
 
     itemSize: number[];
+
+    private _autoLayoutBoxParams?: BoxLayoutOptionMixin;
 
     init(option: Opts, parentModel: Model, ecModel: GlobalModel) {
         this.mergeDefaultAndTheme(option, ecModel);
@@ -427,6 +446,33 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
         return this._dataExtent.slice() as [number, number];
     }
 
+    // 供自动布局处理器写入布局结果
+    setAutoLayoutBoxParams(params: BoxLayoutOptionMixin) {
+        this._autoLayoutBoxParams = params;
+    }
+
+    // 覆盖获取布局参数，若有自动布局结果则优先返回
+    getBoxLayoutParams(): {
+        left: PositionSizeOption;
+        top: PositionSizeOption;
+        right: PositionSizeOption;
+        bottom: PositionSizeOption;
+        width: PositionSizeOption;
+        height: PositionSizeOption;
+    } {
+        if (this._autoLayoutBoxParams) {
+            return this._autoLayoutBoxParams as {
+                left: PositionSizeOption;
+                top: PositionSizeOption;
+                right: PositionSizeOption;
+                bottom: PositionSizeOption;
+                width: PositionSizeOption;
+                height: PositionSizeOption;
+            };
+        }
+        return super.getBoxLayoutParams();
+    }
+
     completeVisualOption() {
 
         const ecModel = this.ecModel;
@@ -646,7 +692,9 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
 
         textStyle: {
             color: tokens.color.secondary          // 值域文字颜色
-        }
+        },
+        // 默认关闭自动布局
+        autoLayoutAlign: 'center'
     };
 }
 

@@ -32,7 +32,8 @@ import {
     ItemStyleOption,
     LineStyleOption,
     ComponentOnCalendarOptionMixin,
-    ComponentOnMatrixOptionMixin
+    ComponentOnMatrixOptionMixin,
+    PositionSizeOption
 } from '../../util/types';
 import { Dictionary } from 'zrender/src/core/types';
 import GlobalModel from '../../model/Global';
@@ -240,6 +241,23 @@ export interface LegendOption extends ComponentOption, LegendStyleOption,
     tooltip?: CommonTooltipOption<LegendTooltipFormatterParams>
 
     triggerEvent?: boolean
+
+    /**
+     * 自动布局位置。
+     * - 'top' / 'bottom': 水平布局（多个图例横向排列）
+     * - 'left' / 'right': 垂直布局（多个图例纵向排列）
+     * - undefined: 不启用自动布局
+     */
+    autoLayoutPosition?: 'top' | 'bottom' | 'left' | 'right'
+
+    /**
+     * 自动布局对齐方式。
+     * - 'start': 前对齐（水平布局时左对齐，垂直布局时上对齐）
+     * - 'center': 居中对齐（默认）
+     * - 'end': 后对齐（水平布局时右对齐，垂直布局时下对齐）
+     * 只有设置了 autoLayoutPosition 时才生效
+     */
+    autoLayoutAlign?: 'start' | 'center' | 'end'
 }
 
 class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentModel<Ops> {
@@ -262,6 +280,8 @@ class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentMode
 
 
     private _data: Model<DataItem>[];
+    // 自动布局计算出的盒模型参数，存在则优先于用户设置参与布局
+    private _autoLayoutBoxParams?: BoxLayoutOptionMixin;
     private _availableNames: string[];
 
     init(option: Ops, parentModel: Model, ecModel: GlobalModel) {
@@ -447,6 +467,33 @@ class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentMode
             : {index: 0, name: 'horizontal'};
     }
 
+    // 供自动布局处理器写入布局结果
+    setAutoLayoutBoxParams(params: BoxLayoutOptionMixin) {
+        this._autoLayoutBoxParams = params;
+    }
+
+    // 覆盖获取布局参数，若有自动布局结果则优先返回
+    getBoxLayoutParams(): {
+        left: PositionSizeOption;
+        top: PositionSizeOption;
+        right: PositionSizeOption;
+        bottom: PositionSizeOption;
+        width: PositionSizeOption;
+        height: PositionSizeOption;
+    } {
+        if (this._autoLayoutBoxParams) {
+            return this._autoLayoutBoxParams as {
+                left: PositionSizeOption;
+                top: PositionSizeOption;
+                right: PositionSizeOption;
+                bottom: PositionSizeOption;
+                width: PositionSizeOption;
+                height: PositionSizeOption;
+            };
+        }
+        return super.getBoxLayoutParams();
+    }
+
     static defaultOption: LegendOption = {
         // zlevel: 0,
         z: 4,
@@ -535,7 +582,10 @@ class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentMode
             show: false
         },
 
-        triggerEvent: false
+        triggerEvent: false,
+
+        // 自动布局默认居中
+        autoLayoutAlign: 'center'
     };
 }
 
