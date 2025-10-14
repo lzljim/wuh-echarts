@@ -285,29 +285,38 @@ class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentMode
     private _availableNames: string[];
 
     init(option: Ops, parentModel: Model, ecModel: GlobalModel) {
+        // Phase-1: 在合并默认值之前，根据 autoLayoutPosition 预处理 orient
+        // 这样可以让 autoLayoutPosition 的优先级高于默认值，但低于用户明确设置的值
+        this._preprocessAutoLayoutBeforeMerge(option);
+        
         this.mergeDefaultAndTheme(option, ecModel);
 
         option.selected = option.selected || {};
         this._updateSelector(option);
-        // Phase-1: preprocess auto layout so that orient is ready before render
-        this._preprocessAutoLayout();
     }
 
     mergeOption(option: Ops, ecModel: GlobalModel) {
+        // Phase-1: 在合并之前，根据 autoLayoutPosition 预处理 orient
+        this._preprocessAutoLayoutBeforeMerge(option);
+        
         super.mergeOption(option, ecModel);
         this._updateSelector(option);
-        // Phase-1: preprocess auto layout after option merged via setOption
-        this._preprocessAutoLayout();
     }
 
     /**
-     * Preprocess auto layout params: set orient based on autoLayoutPosition
-     * Only when user did not explicitly set orient.
+     * 在合并默认值之前预处理自动布局参数
+     * 如果用户设置了 autoLayoutPosition 但未设置 orient，则根据 position 自动设置 orient
+     * 这样可以让 autoLayoutPosition 的优先级：高于默认值，低于用户明确设置的值
      */
-    private _preprocessAutoLayout() {
-        const pos = (this.option as any).autoLayoutPosition as ('top'|'bottom'|'left'|'right'|undefined);
-        if (pos) {
-            (this.option as any).orient = (pos === 'top' || pos === 'bottom') ? 'horizontal' : 'vertical';
+    private _preprocessAutoLayoutBeforeMerge(option: Ops) {
+        const pos = (option as any).autoLayoutPosition;
+        const userOrient = (option as any).orient;
+        
+        // 只有设置了 autoLayoutPosition 且用户未明确设置 orient 时才自动设置
+        if (pos && userOrient == null) {
+            (option as any).orient = (pos === 'top' || pos === 'bottom') 
+                ? 'horizontal' 
+                : 'vertical';
         }
     }
 

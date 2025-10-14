@@ -218,9 +218,10 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
     private _autoLayoutBoxParams?: BoxLayoutOptionMixin;
 
     init(option: Opts, parentModel: Model, ecModel: GlobalModel) {
+        // Phase-1: 在合并默认值之前，根据 autoLayoutPosition 预处理 orient
+        this._preprocessAutoLayoutBeforeMerge(option);
+        
         this.mergeDefaultAndTheme(option, ecModel);
-        // Phase-1: preprocess auto layout so that orient is ready before render
-        this._preprocessAutoLayout();
     }
 
     /**
@@ -240,15 +241,27 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
         this.completeVisualOption();
     }
 
+    mergeOption(option: Opts) {
+        // Phase-1: 在合并之前，根据 autoLayoutPosition 预处理 orient
+        this._preprocessAutoLayoutBeforeMerge(option);
+        
+        super.mergeOption(option);
+    }
+
     /**
-     * Preprocess auto layout params: set orient based on autoLayoutPosition
-     * Only when user did not explicitly set orient.
+     * 在合并默认值之前预处理自动布局参数
+     * 如果用户设置了 autoLayoutPosition 但未设置 orient，则根据 position 自动设置 orient
+     * 这样可以让 autoLayoutPosition 的优先级：高于默认值，低于用户明确设置的值
      */
-    private _preprocessAutoLayout() {
-        const pos = (this.option as any).autoLayoutPosition as ('top'|'bottom'|'left'|'right'|undefined);
-        const hasUserOrient = (this.option as any).orient != null;
-        if (pos && !hasUserOrient) {
-            (this.option as any).orient = (pos === 'top' || pos === 'bottom') ? 'horizontal' : 'vertical';
+    private _preprocessAutoLayoutBeforeMerge(option: Opts) {
+        const pos = (option as any).autoLayoutPosition;
+        const userOrient = (option as any).orient;
+        
+        // 只有设置了 autoLayoutPosition 且用户未明确设置 orient 时才自动设置
+        if (pos && userOrient == null) {
+            (option as any).orient = (pos === 'top' || pos === 'bottom') 
+                ? 'horizontal' 
+                : 'vertical';
         }
     }
 
