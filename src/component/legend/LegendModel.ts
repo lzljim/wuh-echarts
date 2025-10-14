@@ -305,16 +305,12 @@ class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentMode
 
     /**
      * 在合并默认值之前预处理自动布局参数
-     * 如果用户设置了 autoLayoutPosition 但未设置 orient，则根据 position 自动设置 orient
-     * 这样可以让 autoLayoutPosition 的优先级：高于默认值，低于用户明确设置的值
+     * 根据 autoLayoutPosition 自动设置 orient
      */
     private _preprocessAutoLayoutBeforeMerge(option: Ops) {
-        const pos = (option as any).autoLayoutPosition;
-        const userOrient = (option as any).orient;
-        
-        // 只有设置了 autoLayoutPosition 且用户未明确设置 orient 时才自动设置
-        if (pos && userOrient == null) {
-            (option as any).orient = (pos === 'top' || pos === 'bottom') 
+        const pos = option.autoLayoutPosition;
+        if (pos) {
+            option.orient = (pos === 'top' || pos === 'bottom') 
                 ? 'horizontal' 
                 : 'vertical';
         }
