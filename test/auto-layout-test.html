@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>自动布局测试</title>
+    <script src="lib/simpleRequire.js"></script>
+    <script src="lib/config.js"></script>
+    <style>
+        .chart { width: 100%; height: 400px; border: 1px solid #eee; margin-bottom: 20px; }
+        .controls { margin: 10px 0; }
+        .controls label { margin-right: 10px; }
+        .controls select { margin-right: 20px; }
+    </style>
+</head>
+<body>
+    <h1>基于 ECharts API 的自动布局测试 - 修复 orient 设置</h1>
+    
+    <div class="controls">
+        <label>位置:</label>
+        <select id="position" onchange="updateChart()">
+            <option value="bottom">底部（水平排列）</option>
+            <option value="top">顶部（水平排列）</option>
+            <option value="left">左侧（垂直排列）</option>
+            <option value="right">右侧（垂直排列）</option>
+        </select>
+        
+        <label>对齐:</label>
+        <select id="align" onchange="updateChart()">
+            <option value="start">前对齐</option>
+            <option value="center" selected>居中对齐</option>
+            <option value="end">后对齐</option>
+        </select>
+    </div>
+    
+    <div id="chart" class="chart"></div>
+
+    <script>
+        require(['echarts'], function (echarts) {
+            window.chart = echarts.init(document.getElementById('chart'));
+            
+            function getOption() {
+                const position = document.getElementById('position').value;
+                const align = document.getElementById('align').value;
+                
+                return {
+                    title: {
+                        text: `自动布局测试 - ${position} ${align}`,
+                        left: 'center'
+                    },
+                    legend: [
+                        {
+                            autoLayoutPosition: position,
+                            autoLayoutAlign: align,
+                            data: ['系列A', '系列B', '系列C', '系列D', '系列E']
+                        },
+                        {
+                            autoLayoutPosition: position,
+                            autoLayoutAlign: align,
+                            data: ['系列F', '系列G', '系列H']
+                        }
+                    ],
+                    visualMap: {
+                        autoLayoutPosition: position,
+                        autoLayoutAlign: align,
+                        min: 0,
+                        max: 100,
+                        text: ['高', '低'],
+                        calculable: true
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                    },
+                    yAxis: {
+                        type: 'value'
+                    },
+                    series: [
+                        {
+                            name: '系列A',
+                            type: 'bar',
+                            data: [120, 200, 150, 80, 70, 110, 130]
+                        },
+                        {
+                            name: '系列B',
+                            type: 'bar',
+                            data: [60, 100, 75, 40, 35, 55, 65]
+                        },
+                        {
+                            name: '系列C',
+                            type: 'bar',
+                            data: [30, 50, 37, 20, 17, 27, 32]
+                        },
+                        {
+                            name: '系列D',
+                            type: 'bar',
+                            data: [15, 25, 18, 10, 8, 13, 16]
+                        },
+                        {
+                            name: '系列E',
+                            type: 'bar',
+                            data: [7, 12, 9, 5, 4, 6, 8]
+                        },
+                        {
+                            name: '系列F',
+                            type: 'line',
+                            data: [80, 120, 100, 60, 50, 80, 90]
+                        },
+                        {
+                            name: '系列G',
+                            type: 'line',
+                            data: [40, 60, 50, 30, 25, 40, 45]
+                        },
+                        {
+                            name: '系列H',
+                            type: 'line',
+                            data: [20, 30, 25, 15, 12, 20, 22]
+                        }
+                    ]
+                };
+            }
+            
+            window.updateChart = function() {
+                chart.setOption(getOption(), true);
+            };
+            
+            // 初始渲染
+            updateChart();
+        });
+    </script>
+</body>
+</html>

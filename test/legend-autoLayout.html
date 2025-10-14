@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<!--
+  图例自动布局测试页
+  - 场景覆盖: 单图例/多图例(水平/垂直)、与 visualMap 混合、分页、响应式
+  - 左右/上下定位、autoLayout 对比非 autoLayout
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="lib/simpleRequire.js"></script>
+    <script src="lib/config.js"></script>
+    <script src="lib/jquery.min.js"></script>
+    <script src="lib/testHelper.js"></script>
+    <link rel="stylesheet" href="lib/reset.css" />
+    <style>
+      .chart { width: 100%; height: 320px; border: 1px solid #eee; margin-bottom: 20px; }
+      h2 { margin: 12px 0 4px; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <div id="case1" class="chart"></div>
+    <div id="case2" class="chart"></div>
+    <div id="case3" class="chart"></div>
+    <div id="case4" class="chart"></div>
+
+    <script>
+      require(['echarts'], function (echarts) {
+        
+        // 辅助函数：从状态对象中获取实际值
+        function getValueFromState(state, key) {
+          if (!state[key]) return 'auto';
+          var optionIndex = state[key].optionIndex;
+          var values = ['auto', 'top', 'bottom', 'left', 'right'];
+          if (key === 'autoLayoutAlign') {
+            values = ['auto', 'start', 'center', 'end'];
+          } else if (key === 'left') {
+            values = ['auto', 0, '10%', '20%', 'left', 'center', 'right'];
+          } else if (key === 'right') {
+            values = ['auto', 0, '10%', '20%'];
+          } else if (key === 'top') {
+            values = ['auto', 0, '10%', '20%', 'top', 'middle', 'bottom'];
+          } else if (key === 'bottom') {
+            values = ['auto', 0, '10%', '20%'];
+          } else if (key === 'orient') {
+            values = ['auto', 'horizontal', 'vertical'];
+          }
+          return values[optionIndex] || 'auto';
+        }
+        
+        // 辅助函数：生成单图例配置
+        function getOption1(autoLayoutPosition, autoLayoutAlign, left, right, top, bottom, orient) {
+          var legendOption = { data: ['A', 'B', 'C'] };
+          if (autoLayoutPosition && autoLayoutPosition !== 'auto') {
+            legendOption.autoLayoutPosition = autoLayoutPosition;
+            if (autoLayoutAlign && autoLayoutAlign !== 'auto') {
+              legendOption.autoLayoutAlign = autoLayoutAlign;
+            }
+          } else {
+            // 手动定位时，只有非auto值才设置
+            if (left !== 'auto') legendOption.left = left;
+            if (right !== 'auto') legendOption.right = right;
+            if (top !== 'auto') legendOption.top = top;
+            if (bottom !== 'auto') legendOption.bottom = bottom;
+            if (orient !== 'auto') legendOption.orient = orient;
+          }
+          
+          return {
+            legend: legendOption,
+            xAxis: { data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] },
+            yAxis: {},
+            series: [
+              { name: 'A', type: 'bar', data: [1, 2, 3, 4, 5] },
+              { name: 'B', type: 'bar', data: [2, 3, 4, 5, 6] },
+              { name: 'C', type: 'bar', data: [3, 4, 5, 6, 7] }
+            ]
+          };
+        }
+
+        // 辅助函数：生成双图例水平配置
+        function getOption2(autoLayoutPosition, left1, right1, top1, bottom1, orient1, left2, right2, top2, bottom2, orient2) {
+          var legend1 = { data: ['L1-1', 'L1-2', 'L1-3'] };
+          var legend2 = { data: ['L2-1', 'L2-2'] };
+          
+          if (autoLayoutPosition && autoLayoutPosition !== 'auto') {
+            legend1.autoLayoutPosition = autoLayoutPosition;
+            legend2.autoLayoutPosition = autoLayoutPosition;
+          } else {
+            // 手动定位时，只有非auto值才设置
+            if (left1 !== 'auto') legend1.left = left1;
+            if (right1 !== 'auto') legend1.right = right1;
+            if (top1 !== 'auto') legend1.top = top1;
+            if (bottom1 !== 'auto') legend1.bottom = bottom1;
+            if (orient1 !== 'auto') legend1.orient = orient1;
+            
+            if (left2 !== 'auto') legend2.left = left2;
+            if (right2 !== 'auto') legend2.right = right2;
+            if (top2 !== 'auto') legend2.top = top2;
+            if (bottom2 !== 'auto') legend2.bottom = bottom2;
+            if (orient2 !== 'auto') legend2.orient = orient2;
+          }
+          
+          return {
+            legend: [legend1, legend2],
+            xAxis: { data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] },
+            yAxis: {},
+            series: [
+              { name: 'L1-1', type: 'line', data: [12, 23, 19, 30, 22] },
+              { name: 'L1-2', type: 'line', data: [15, 25, 22, 28, 25] },
+              { name: 'L1-3', type: 'line', data: [18, 20, 25, 32, 28] },
+              { name: 'L2-1', type: 'line', data: [10, 18, 15, 25, 20] },
+              { name: 'L2-2', type: 'line', data: [20, 28, 25, 35, 30] }
+            ]
+          };
+        }
+
+        // 辅助函数：生成翻页图例配置
+        function getOption3(autoLayout, width1, width2) {
+          var legend1 = { 
+            type: 'scroll', 
+            data: (function(){var a=[];for(var i=0;i<20;i++){a.push('L1-'+i)};return a;})() 
+          };
+          var legend2 = { 
+            type: 'scroll', 
+            data: (function(){var a=[];for(var i=0;i<10;i++){a.push('L2-'+i)};return a;})() 
+          };
+          
+          if (autoLayout) {
+            legend1.autoLayout = true;
+            legend2.autoLayout = true;
+          }
+          
+          legend1.orient = 'horizontal';
+          legend2.orient = 'horizontal';
+          legend1.bottom = 0;
+          legend2.bottom = 0;
+          legend1.left = 0;
+          legend2.right = 0;
+          legend1.width = width1 + '%';
+          legend2.width = width2 + '%';
+          
+          return {
+            legend: [legend1, legend2],
+            xAxis: { data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] },
+            yAxis: {},
+            series: (function(){
+              var series = [];
+              for(var i=0;i<20;i++){series.push({name:'L1-'+i,type:'line',data:[12,23,19,30,22]});}
+              for(var i=0;i<10;i++){series.push({name:'L2-'+i,type:'line',data:[15,25,22,28,25]});}
+              return series;
+            })()
+          };
+        }
+
+        // 辅助函数：生成垂直布局配置
+        function getOption4(autoLayout, height1, height2) {
+          var legend1 = { data: ['A','B','C'] };
+          var legend2 = { data: ['D','E'] };
+          var visualMap = { min: 0, max: 100 };
+          
+          if (autoLayout) {
+            legend1.autoLayout = true;
+            legend2.autoLayout = true;
+            visualMap.autoLayout = true;
+          }
+          
+          legend1.orient = 'vertical';
+          legend2.orient = 'vertical';
+          visualMap.orient = 'vertical';
+          
+          legend1.right = 0;
+          legend2.right = 0;
+          visualMap.right = 0;
+          
+          legend1.top = 0;
+          legend2.top = height1 + '%';
+          visualMap.top = (height1 + height2) + '%';
+          
+          legend1.height = height1 + '%';
+          legend2.height = height2 + '%';
+          visualMap.height = (100 - height1 - height2) + '%';
+          
+          return {
+            legend: [legend1, legend2],
+            visualMap: [visualMap],
+            xAxis: { data: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] },
+            yAxis: {},
+            series: [
+              { name: 'A', type: 'line', data: [12, 23, 19, 30, 22] },
+              { name: 'B', type: 'line', data: [15, 25, 22, 28, 25] },
+              { name: 'C', type: 'line', data: [18, 20, 25, 32, 28] },
+              { name: 'D', type: 'line', data: [10, 18, 15, 25, 20] },
+              { name: 'E', type: 'line', data: [20, 28, 25, 35, 30] }
+            ]
+          };
+        }
+
+        // 场景 1：单图例配置
+        var chart1 = testHelper.create(echarts, 'case1', {
+          title: '场景 1：单图例配置 - 四位置属性',
+          option: getOption1('auto', 'auto', 'auto', 'auto', 'auto', 'auto', 'auto'),
+          inputs: [
+            {
+              type: 'select',
+              text: 'autoLayoutPosition',
+              id: 'autoLayoutPosition',
+              values: ['auto', 'top', 'bottom', 'left', 'right'],
+              options: [
+                {text: '关闭', value: 'auto'},
+                {text: '顶部(水平)', value: 'top'},
+                {text: '底部(水平)', value: 'bottom'},
+                {text: '左侧(垂直)', value: 'left'},
+                {text: '右侧(垂直)', value: 'right'}
+              ],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(this.value, getValueFromState(state, 'autoLayoutAlign'), 
+                                    getValueFromState(state, 'left'), getValueFromState(state, 'right'), 
+                                    getValueFromState(state, 'top'), getValueFromState(state, 'bottom'), 
+                                    getValueFromState(state, 'orient'));
+                chart1.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: 'autoLayoutAlign',
+              id: 'autoLayoutAlign',
+              values: ['auto', 'start', 'center', 'end'],
+              options: [
+                {text: '自动', value: 'auto'},
+                {text: '前对齐', value: 'start'},
+                {text: '居中对齐', value: 'center'},
+                {text: '后对齐', value: 'end'}
+              ],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(getValueFromState(state, 'autoLayoutPosition'), this.value, 
+                                    getValueFromState(state, 'left'), getValueFromState(state, 'right'), 
+                                    getValueFromState(state, 'top'), getValueFromState(state, 'bottom'), 
+                                    getValueFromState(state, 'orient'));
+                chart1.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: 'left',
+              id: 'left',
+              values: ['auto', 0, '10%', '20%', 'left', 'center', 'right'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(getValueFromState(state, 'autoLayoutPosition'), getValueFromState(state, 'autoLayoutAlign'), 
+                                    this.value, getValueFromState(state, 'right'), getValueFromState(state, 'top'), 
+                                    getValueFromState(state, 'bottom'), getValueFromState(state, 'orient'));
+                chart1.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: 'right',
+              id: 'right',
+              values: ['auto', 0, '10%', '20%'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(getValueFromState(state, 'autoLayoutPosition'), getValueFromState(state, 'autoLayoutAlign'), 
+                                    getValueFromState(state, 'left'), this.value, getValueFromState(state, 'top'), 
+                                    getValueFromState(state, 'bottom'), getValueFromState(state, 'orient'));
+                chart1.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: 'top',
+              id: 'top',
+              values: ['auto', 0, '10%', '20%', 'top', 'middle', 'bottom'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(getValueFromState(state, 'autoLayoutPosition'), getValueFromState(state, 'autoLayoutAlign'), 
+                                    getValueFromState(state, 'left'), getValueFromState(state, 'right'), this.value, 
+                                    getValueFromState(state, 'bottom'), getValueFromState(state, 'orient'));
+                chart1.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: 'bottom',
+              id: 'bottom',
+              values: ['auto', 0, '10%', '20%'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(getValueFromState(state, 'autoLayoutPosition'), getValueFromState(state, 'autoLayoutAlign'), 
+                                    getValueFromState(state, 'left'), getValueFromState(state, 'right'), 
+                                    getValueFromState(state, 'top'), this.value, getValueFromState(state, 'orient'));
+                chart1.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: 'orient',
+              id: 'orient',
+              values: ['auto', 'horizontal', 'vertical'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart1.__testHelper.getInputsState();
+                var opt = getOption1(getValueFromState(state, 'autoLayoutPosition'), getValueFromState(state, 'autoLayoutAlign'), 
+                                    getValueFromState(state, 'left'), getValueFromState(state, 'right'), 
+                                    getValueFromState(state, 'top'), getValueFromState(state, 'bottom'), this.value);
+                chart1.setOption(opt, true);
+              }
+            }
+          ]
+        });
+
+        // 场景 2：双图例水平布局
+        var chart2 = testHelper.create(echarts, 'case2', {
+          title: '场景 2：双图例水平布局 - 四位置属性',
+          option: getOption2('auto', 'auto', 'auto', 'auto', 'auto', 'auto', 'auto', 'auto', 'auto', 'auto', 'auto'),
+          inputs: [
+            {
+              type: 'select',
+              text: 'autoLayoutPosition',
+              id: 'autoLayoutPosition',
+              values: ['auto', 'top', 'bottom', 'left', 'right'],
+              options: [
+                {text: '关闭', value: 'auto'},
+                {text: '顶部(水平)', value: 'top'},
+                {text: '底部(水平)', value: 'bottom'},
+                {text: '左侧(垂直)', value: 'left'},
+                {text: '右侧(垂直)', value: 'right'}
+              ],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(this.value, state.left1, state.right1, state.top1, state.bottom1, state.orient1,
+                                    state.left2, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'hr',
+              text: '图例1位置属性'
+            },
+            {
+              type: 'select',
+              text: '图例1-left',
+              id: 'left1',
+              values: ['auto', 0, '10%', '20%', 'left', 'center', 'right'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, this.value, state.right1, state.top1, state.bottom1, state.orient1,
+                                    state.left2, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例1-right',
+              id: 'right1',
+              values: ['auto', 0, '10%', '20%'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, this.value, state.top1, state.bottom1, state.orient1,
+                                    state.left2, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例1-top',
+              id: 'top1',
+              values: ['auto', 0, '10%', '20%', 'top', 'middle', 'bottom'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, this.value, state.bottom1, state.orient1,
+                                    state.left2, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例1-bottom',
+              id: 'bottom1',
+              values: ['auto', 0, '10%', '20%'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, this.value, state.orient1,
+                                    state.left2, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例1-orient',
+              id: 'orient1',
+              values: ['auto', 'horizontal', 'vertical'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, state.bottom1, this.value,
+                                    state.left2, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'hr',
+              text: '图例2位置属性'
+            },
+            {
+              type: 'select',
+              text: '图例2-left',
+              id: 'left2',
+              values: ['auto', 0, '10%', '20%', 'left', 'center', 'right'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, state.bottom1, state.orient1,
+                                    this.value, state.right2, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例2-right',
+              id: 'right2',
+              values: ['auto', 0, '10%', '20%'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, state.bottom1, state.orient1,
+                                    state.left2, this.value, state.top2, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例2-top',
+              id: 'top2',
+              values: ['auto', 0, '10%', '20%', 'top', 'middle', 'bottom'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, state.bottom1, state.orient1,
+                                    state.left2, state.right2, this.value, state.bottom2, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例2-bottom',
+              id: 'bottom2',
+              values: ['auto', 0, '10%', '20%'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, state.bottom1, state.orient1,
+                                    state.left2, state.right2, state.top2, this.value, state.orient2);
+                chart2.setOption(opt, true);
+              }
+            },
+            {
+              type: 'select',
+              text: '图例2-orient',
+              id: 'orient2',
+              values: ['auto', 'horizontal', 'vertical'],
+              value: 'auto',
+              onchange: function() {
+                var state = chart2.__testHelper.getInputsState();
+                var opt = getOption2(state.autoLayout, state.left1, state.right1, state.top1, state.bottom1, state.orient1,
+                                    state.left2, state.right2, state.top2, state.bottom2, this.value);
+                chart2.setOption(opt, true);
+              }
+            }
+          ]
+        });
+
+        // 场景 3：双图例水平布局（带翻页）
+        var chart3 = testHelper.create(echarts, 'case3', {
+          title: '场景 3：双图例水平布局（带翻页）',
+          option: getOption3(false, 45, 45),
+          inputs: [
+            {
+              type: 'select',
+              text: 'autoLayout',
+              id: 'autoLayout',
+              values: [false, true],
+              options: [
+                {text: '关闭', value: false},
+                {text: '开启', value: true}
+              ],
+              onchange: function() {
+                var state = chart3.__testHelper.getInputsState();
+                var opt = getOption3(this.value, state.width1, state.width2);
+                chart3.setOption(opt, true);
+              }
+            },
+            {
+              type: 'range',
+              text: '图例1宽度',
+              id: 'width1',
+              min: 20,
+              max: 80,
+              value: 45,
+              suffix: '%',
+              onchange: function() {
+                var state = chart3.__testHelper.getInputsState();
+                var opt = getOption3(state.autoLayout, this.value, state.width2);
+                chart3.setOption(opt, true);
+              }
+            },
+            {
+              type: 'range',
+              text: '图例2宽度',
+              id: 'width2',
+              min: 20,
+              max: 80,
+              value: 45,
+              suffix: '%',
+              onchange: function() {
+                var state = chart3.__testHelper.getInputsState();
+                var opt = getOption3(state.autoLayout, state.width1, this.value);
+                chart3.setOption(opt, true);
+              }
+            }
+          ]
+        });
+
+        // 场景 4：双图例垂直布局 + visualMap
+        var chart4 = testHelper.create(echarts, 'case4', {
+          title: '场景 4：双图例垂直布局 + visualMap',
+          option: getOption4(false, 40, 40),
+          inputs: [
+            {
+              type: 'select',
+              text: 'autoLayout',
+              id: 'autoLayout',
+              values: [false, true],
+              options: [
+                {text: '关闭', value: false},
+                {text: '开启', value: true}
+              ],
+              onchange: function() {
+                var state = chart4.__testHelper.getInputsState();
+                var opt = getOption4(this.value, state.height1, state.height2);
+                chart4.setOption(opt, true);
+              }
+            },
+            {
+              type: 'range',
+              text: '图例1高度',
+              id: 'height1',
+              min: 20,
+              max: 60,
+              value: 40,
+              suffix: '%',
+              onchange: function() {
+                var state = chart4.__testHelper.getInputsState();
+                var opt = getOption4(state.autoLayout, this.value, state.height2);
+                chart4.setOption(opt, true);
+              }
+            },
+            {
+              type: 'range',
+              text: '图例2高度',
+              id: 'height2',
+              min: 20,
+              max: 60,
+              value: 40,
+              suffix: '%',
+              onchange: function() {
+                var state = chart4.__testHelper.getInputsState();
+                var opt = getOption4(state.autoLayout, state.height1, this.value);
+                chart4.setOption(opt, true);
+              }
+            }
+          ]
+        });
+      })
+    </script>
+  </body>
+  </html>
+
+

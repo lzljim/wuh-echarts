@@ -289,11 +289,26 @@ class LegendModel<Ops extends LegendOption = LegendOption> extends ComponentMode
 
         option.selected = option.selected || {};
         this._updateSelector(option);
+        // Phase-1: preprocess auto layout so that orient is ready before render
+        this._preprocessAutoLayout();
     }
 
     mergeOption(option: Ops, ecModel: GlobalModel) {
         super.mergeOption(option, ecModel);
         this._updateSelector(option);
+        // Phase-1: preprocess auto layout after option merged via setOption
+        this._preprocessAutoLayout();
+    }
+
+    /**
+     * Preprocess auto layout params: set orient based on autoLayoutPosition
+     * Only when user did not explicitly set orient.
+     */
+    private _preprocessAutoLayout() {
+        const pos = (this.option as any).autoLayoutPosition as ('top'|'bottom'|'left'|'right'|undefined);
+        if (pos) {
+            (this.option as any).orient = (pos === 'top' || pos === 'bottom') ? 'horizontal' : 'vertical';
+        }
     }
 
     _updateSelector(option: Ops) {

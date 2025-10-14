@@ -70502,10 +70502,18 @@ var LegendModel2 = class extends Component_default {
     this.mergeDefaultAndTheme(option, ecModel);
     option.selected = option.selected || {};
     this._updateSelector(option);
+    this._preprocessAutoLayout();
   }
   mergeOption(option, ecModel) {
     super.mergeOption(option, ecModel);
     this._updateSelector(option);
+    this._preprocessAutoLayout();
+  }
+  _preprocessAutoLayout() {
+    const pos = this.option.autoLayoutPosition;
+    if (pos) {
+      this.option.orient = pos === "top" || pos === "bottom" ? "horizontal" : "vertical";
+    }
   }
   _updateSelector(option) {
     let selector2 = option.selector;
@@ -70629,6 +70637,15 @@ var LegendModel2 = class extends Component_default {
   getOrient() {
     return this.get("orient") === "vertical" ? {index: 1, name: "vertical"} : {index: 0, name: "horizontal"};
   }
+  setAutoLayoutBoxParams(params) {
+    this._autoLayoutBoxParams = params;
+  }
+  getBoxLayoutParams() {
+    if (this._autoLayoutBoxParams) {
+      return this._autoLayoutBoxParams;
+    }
+    return super.getBoxLayoutParams();
+  }
 };
 var LegendModel = LegendModel2;
 LegendModel.type = "legend.plain";
@@ -70702,7 +70719,8 @@ LegendModel.defaultOption = {
   tooltip: {
     show: false
   },
-  triggerEvent: false
+  triggerEvent: false,
+  autoLayoutAlign: "center"
 };
 var LegendModel_default = LegendModel;
 
@@ -71178,6 +71196,185 @@ function installLegendAction(registers) {
   registers.registerAction("legendUnSelect", "legendunselected", curry(legendSelectActionHandler, "unSelect"));
 }
 
+// src/layout/autoLegendLayout.ts
+var COMPONENT_GAP = 10;
+var MIN_COMPONENT_SIZE = 50;
+var PAGED_LEGEND_WEIGHT = 1.5;
+function getViewSize(api2) {
+  return {width: api2.getWidth(), height: api2.getHeight()};
+}
+function layoutGroup(group, container) {
+  const {position: position2, orient, align, items} = group;
+  if (items.length === 0) {
+    return;
+  }
+  const horizontal = orient === "horizontal";
+  const totalSpace = horizontal ? container.width : container.height;
+  const gapsSpace = Math.max(0, items.length - 1) * COMPONENT_GAP;
+  const availableSpace = Math.max(0, totalSpace - gapsSpace);
+  const actualSizes = items.map((item) => {
+    const size = item.actualSize;
+    if (!size) {
+      return MIN_COMPONENT_SIZE;
+    }
+    return horizontal ? size.width : size.height;
+  });
+  const weightedSizes = actualSizes.map((size, i) => {
+    const weight = items[i].paged ? PAGED_LEGEND_WEIGHT : 1;
+    return size * weight;
+  });
+  const totalWeightedSize = weightedSizes.reduce((sum2, size) => sum2 + size, 0);
+  let allocatedSizes;
+  if (totalWeightedSize <= availableSpace) {
+    allocatedSizes = weightedSizes.map((size) => Math.floor(size));
+  } else {
+    allocatedSizes = weightedSizes.map((size) => {
+      const allocated = Math.floor(availableSpace * (size / totalWeightedSize));
+      return Math.max(MIN_COMPONENT_SIZE, allocated);
+    });
+  }
+  const totalAllocated = allocatedSizes.reduce((sum2, size) => sum2 + size, 0);
+  const totalUsed = totalAllocated + gapsSpace;
+  const remaining = Math.max(0, totalSpace - totalUsed);
+  let alignOffset = 0;
+  if (align === "center") {
+    alignOffset = Math.floor(remaining / 2);
+  } else if (align === "end") {
+    alignOffset = remaining;
+  }
+  let currentOffset = alignOffset;
+  for (let i = 0; i < items.length; i++) {
+    const newBox = {};
+    if (horizontal) {
+      newBox.width = allocatedSizes[i];
+      newBox.left = currentOffset;
+      if (position2 === "bottom") {
+        newBox.bottom = 0;
+        newBox.top = void 0;
+      } else {
+        newBox.top = 0;
+        newBox.bottom = void 0;
+      }
+      newBox.right = void 0;
+      newBox.height = void 0;
+    } else {
+      newBox.height = allocatedSizes[i];
+      newBox.top = currentOffset;
+      if (position2 === "right") {
+        newBox.right = 0;
+        newBox.left = void 0;
+      } else {
+        newBox.left = 0;
+        newBox.right = void 0;
+      }
+      newBox.bottom = void 0;
+      newBox.width = void 0;
+    }
+    items[i].setBox(newBox);
+    currentOffset += allocatedSizes[i] + COMPONENT_GAP;
+  }
+}
+var autoLegendLayout = function(ecModel, api2) {
+  if (!api2 || !ecModel) {
+    return;
+  }
+  const size = getViewSize(api2);
+  if (!size || size.width <= 0 || size.height <= 0) {
+    return;
+  }
+  const groups = {};
+  function addToGroup(model, position2, orient, align, paged, actualSize) {
+    const key = position2;
+    if (!groups[key]) {
+      groups[key] = {
+        position: position2,
+        orient,
+        align,
+        items: []
+      };
+    }
+    groups[key].items.push({
+      model,
+      setBox: (box2) => {
+        const params = {
+          left: box2.left,
+          top: box2.top,
+          right: box2.right,
+          bottom: box2.bottom,
+          width: box2.width,
+          height: box2.height
+        };
+        model.setAutoLayoutBoxParams(params);
+      },
+      paged,
+      actualSize
+    });
+  }
+  const legends = ecModel.findComponents({mainType: "legend"});
+  legends.forEach((m2) => {
+    if (!m2 || !m2.get) {
+      return;
+    }
+    const autoLayoutPosition = m2.get("autoLayoutPosition");
+    if (!autoLayoutPosition) {
+      return;
+    }
+    const orient = autoLayoutPosition === "top" || autoLayoutPosition === "bottom" ? "horizontal" : "vertical";
+    const position2 = autoLayoutPosition;
+    const align = m2.get("autoLayoutAlign") || "center";
+    const isScroll = m2.subType === "scroll";
+    let actualSize;
+    try {
+      const legendView = api2.getViewOfComponentModel(m2);
+      if (legendView && legendView.group) {
+        const rect = legendView.group.getBoundingRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          actualSize = {width: rect.width, height: rect.height};
+        }
+      }
+    } catch (e2) {
+      const data = m2.get("data") || [];
+      const iw = m2.get("itemWidth") || 25;
+      const ih = m2.get("itemHeight") || 14;
+      const estimatedSize = orient === "horizontal" ? data.length * (iw + 12) : data.length * (ih + 8);
+      actualSize = orient === "horizontal" ? {width: estimatedSize, height: ih + 10} : {width: iw + 20, height: estimatedSize};
+    }
+    addToGroup(m2, position2, orient, align, !!isScroll, actualSize);
+  });
+  const vms = ecModel.findComponents({mainType: "visualMap"});
+  vms.forEach((m2) => {
+    if (!m2 || !m2.get) {
+      return;
+    }
+    const autoLayoutPosition = m2.get("autoLayoutPosition");
+    if (!autoLayoutPosition) {
+      return;
+    }
+    const orient = autoLayoutPosition === "top" || autoLayoutPosition === "bottom" ? "horizontal" : "vertical";
+    const position2 = autoLayoutPosition;
+    const align = m2.get("autoLayoutAlign") || "center";
+    let actualSize;
+    try {
+      const vmView = api2.getViewOfComponentModel(m2);
+      if (vmView && vmView.group) {
+        const rect = vmView.group.getBoundingRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          actualSize = {width: rect.width, height: rect.height};
+        }
+      }
+    } catch (e2) {
+      const estimatedSize = orient === "horizontal" ? size.width * 0.2 : size.height * 0.2;
+      actualSize = orient === "horizontal" ? {width: estimatedSize, height: 50} : {width: 50, height: estimatedSize};
+    }
+    addToGroup(m2, position2, orient, align, false, actualSize);
+  });
+  Object.keys(groups).forEach((key) => {
+    const group = groups[key];
+    layoutGroup(group, size);
+  });
+};
+var autoLegendLayout_default = autoLegendLayout;
+
 // src/component/legend/installLegendPlain.ts
 function install46(registers) {
   registers.registerComponentModel(LegendModel_default);
@@ -71187,6 +71384,7 @@ function install46(registers) {
     return "plain";
   });
   installLegendAction(registers);
+  registers.registerLayout(registers.PRIORITY.VISUAL.POST_CHART_LAYOUT, {overallReset: autoLegendLayout_default});
 }
 
 // src/component/legend/ScrollableLegendModel.ts
@@ -72697,6 +72895,7 @@ var VisualMapModel2 = class extends Component_default {
   }
   init(option, parentModel, ecModel) {
     this.mergeDefaultAndTheme(option, ecModel);
+    this._preprocessAutoLayout();
   }
   optionUpdated(newOption, isInit) {
     const thisOption = this.option;
@@ -72704,6 +72903,13 @@ var VisualMapModel2 = class extends Component_default {
     this.textStyleModel = this.getModel("textStyle");
     this.resetItemSize();
     this.completeVisualOption();
+  }
+  _preprocessAutoLayout() {
+    const pos = this.option.autoLayoutPosition;
+    const hasUserOrient = this.option.orient != null;
+    if (pos && !hasUserOrient) {
+      this.option.orient = pos === "top" || pos === "bottom" ? "horizontal" : "vertical";
+    }
   }
   resetVisual(supplementVisualOption) {
     const stateList = this.stateList;
@@ -72798,6 +73004,15 @@ var VisualMapModel2 = class extends Component_default {
   }
   getExtent() {
     return this._dataExtent.slice();
+  }
+  setAutoLayoutBoxParams(params) {
+    this._autoLayoutBoxParams = params;
+  }
+  getBoxLayoutParams() {
+    if (this._autoLayoutBoxParams) {
+      return this._autoLayoutBoxParams;
+    }
+    return super.getBoxLayoutParams();
   }
   completeVisualOption() {
     const ecModel = this.ecModel;
@@ -72923,7 +73138,8 @@ VisualMapModel.defaultOption = {
   precision: 0,
   textStyle: {
     color: tokens_default.color.secondary
-  }
+  },
+  autoLayoutAlign: "center"
 };
 var VisualMapModel_default = VisualMapModel;
 
@@ -73895,6 +74111,7 @@ function installCommon2(registers) {
     registers.registerVisual(registers.PRIORITY.VISUAL.COMPONENT, handler);
   });
   registers.registerPreprocessor(visualMapPreprocessor);
+  registers.registerLayout(registers.PRIORITY.VISUAL.POST_CHART_LAYOUT, {overallReset: autoLegendLayout_default});
 }
 
 // src/component/visualMap/installVisualMapContinuous.ts

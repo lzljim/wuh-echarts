@@ -219,6 +219,8 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
 
     init(option: Opts, parentModel: Model, ecModel: GlobalModel) {
         this.mergeDefaultAndTheme(option, ecModel);
+        // Phase-1: preprocess auto layout so that orient is ready before render
+        this._preprocessAutoLayout();
     }
 
     /**
@@ -236,6 +238,18 @@ class VisualMapModel<Opts extends VisualMapOption = VisualMapOption> extends Com
         this.resetItemSize();
 
         this.completeVisualOption();
+    }
+
+    /**
+     * Preprocess auto layout params: set orient based on autoLayoutPosition
+     * Only when user did not explicitly set orient.
+     */
+    private _preprocessAutoLayout() {
+        const pos = (this.option as any).autoLayoutPosition as ('top'|'bottom'|'left'|'right'|undefined);
+        const hasUserOrient = (this.option as any).orient != null;
+        if (pos && !hasUserOrient) {
+            (this.option as any).orient = (pos === 'top' || pos === 'bottom') ? 'horizontal' : 'vertical';
+        }
     }
 
     /**
